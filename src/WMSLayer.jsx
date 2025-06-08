@@ -8,7 +8,7 @@ const WMSLayer = () => {
 
   useEffect(() => {
     const wmsLayer = L.tileLayer.wms('http://localhost:8080/geoserver/ne/wms', {
-      layers: 'ne:IND_adm1', // change to your layer name
+      layers: ['ne:IND_adm1','ne:TGAdminBoundares3'], // change to your layer name
       format: 'image/png',
       transparent: true,
       version: '1.1.1',
