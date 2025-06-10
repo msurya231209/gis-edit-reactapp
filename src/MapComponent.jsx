@@ -2,9 +2,12 @@ import React, { useState } from 'react';
 import { MapContainer, TileLayer, WMSTileLayer } from 'react-leaflet';
 import WFSLayer from './WFSLayer';
 import LayerListWidget from './components/LayerListWidget';
+import BottomPane from "./BottomPane";
 import 'leaflet/dist/leaflet.css';
 
 function MapComponent() {
+  const [layerFeatures, setLayerFeatures] = useState([]);
+
   const [editableLayers, setEditableLayers] = useState([]);
   const [activeWMSLayers, setActiveWMSLayers] = useState([])
 
@@ -31,7 +34,7 @@ function MapComponent() {
         setActiveWMSLayers={setActiveWMSLayers}
       />
 
-      <MapContainer center={[17.385044, 78.486671]} zoom={12} style={{ height: '90vh' }}>
+      <MapContainer center={[17.385044, 78.486671]} zoom={12} style={{ height: '55vh' }}>
         <TileLayer
           attribution='&copy; OpenStreetMap contributors'
           url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
@@ -46,9 +49,11 @@ function MapComponent() {
             attribution="GeoServer"
           />
         ))}
-
-        <WFSLayer editableLayers={editableLayers} />
+        
+        <WFSLayer editableLayers={editableLayers} onFeaturesUpdate={(features) => setLayerFeatures(features)}/>
+        
       </MapContainer>
+      <BottomPane data={layerFeatures}/>
     </div>
   );
 }

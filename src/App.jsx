@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef} from 'react';
 import { MapContainer, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
@@ -15,6 +15,10 @@ function App() {
               email:'Surya@gmail.com', 
               phone: 9959490388
           }
+  //const [selectedLayer, setSelectedLayer] = useState(null);
+  const [features, setFeatures] = useState([]);
+  const mapRef = useRef(null);
+
   return (
     <div className="app">
       <Header />
@@ -30,8 +34,7 @@ function App() {
           </div>
         </div>
       </div>
-
-      <BottomPane />
+                  
     </div>
   );
 }
