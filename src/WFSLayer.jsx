@@ -165,7 +165,7 @@ const WFSLayer = ({ editableLayers, onFeaturesUpdate  }) => {
       .then((data) => {
         drawnItems.current.clearLayers();
         const features = data.features;
-
+        
         if (onFeaturesUpdate) onFeaturesUpdate(features);
 
         L.geoJSON(data, {

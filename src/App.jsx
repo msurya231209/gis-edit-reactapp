@@ -1,24 +1,21 @@
-import React, { useState, useRef} from 'react';
-import { MapContainer, TileLayer } from 'react-leaflet';
+import React, { useState} from 'react';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 import Header from './Header';
 import MapComponent from './MapComponent';
 import UserInfo from './UserInfo';
 import OrganisationInfo from './OrganisationInfo';
-import BottomPane from './BottomPane';
+import 'leaflet/dist/leaflet.css';
 
 function App() {
+  
   const userobj = 
           {
               name:'Surya', 
               email:'Surya@gmail.com', 
               phone: 9959490388
           }
-  //const [selectedLayer, setSelectedLayer] = useState(null);
-  const [features, setFeatures] = useState([]);
-  const mapRef = useRef(null);
-
+  
   return (
     <div className="app">
       <Header />
@@ -27,6 +24,7 @@ function App() {
         <div className="row h-100">
           <div className="col-md-9 map-col">
             <MapComponent />
+            
           </div>
           <div className="col-md-3 sidebar-col">
             <UserInfo user ={userobj}/>
@@ -34,7 +32,7 @@ function App() {
           </div>
         </div>
       </div>
-                  
+                 
     </div>
   );
 }
