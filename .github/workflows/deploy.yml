@@ -3,29 +3,33 @@ name: Deploy React App to EC2
 on:
   push:
     branches:
-      - main  # change if your default branch is different
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H 16.171.197.252 >> ~/.ssh/known_hosts
-
-      - name: Deploy to EC2
-        run: |
-          ssh ec2-user@16.171.197.252 << 'EOF'
-            cd /home/ec2-user/my-react-app  # replace with your app directory
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ec2-user
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          if [ ! -d "gis-edit-reactapp" ]; then
+            echo "Cloning repo..."
+            git clone https://github.com/msurya231209/gis-edit-reactapp.git
+          else
+            echo "Repo already exists. Pulling latest changes..."
+            cd gis-edit-reactapp
             git pull origin main
-            npm install
-            npm run build
-            # Add any additional commands like restarting server or syncing files
-          EOF
+            cd ..
+          fi
+
+          cd gis-edit-reactapp
+          echo "Installing dependencies..."
+          npm install
+
+          echo "Building the React app..."
+          npm run build
