@@ -11,6 +11,9 @@ function MapComponent() {
   const [editableLayers, setEditableLayers] = useState([]);
   const [activeWMSLayers, setActiveWMSLayers] = useState([]);
   const mapRef = useRef(null);
+  const wfsLayerRef = useRef();
+  const [features, setFeatures] = useState([]);
+
 
   const wfsLayers = [
     { name: 'features', label: 'Features', type: 'WFS' },
@@ -22,17 +25,63 @@ function MapComponent() {
     { name: 'TGAdminBoundares3', label: 'TG Taluka Boundaries', type: 'WMS' },
     { name: 'IND_rails', label: 'Rail Roads', type: 'WMS' }
   ];
+  const callHandleEditFromWFS = (feature) => {
+    if (wfsLayerRef.current && feature) {
+      wfsLayerRef.current.handleEdit(feature);
+    } else {
+      console.warn("WFSLayer ref or feature is undefined");
+    }
+  };
+
+  const onEdit = (feature) => {
+    setSelectedFeature(feature); // or your editing logic
+  };
+
+  const onSaveEdit = () => {
+    if (selectedFeature) {
+      callHandleEditFromWFS(selectedFeature); // <-- pass the actual feature object
+    } else {
+      console.warn("No feature selected to save");
+    }
+  };
+
+  const onDelete = (feature) => {
+    console.log("wfsLayerRef.current:", wfsLayerRef.current);
+    if (wfsLayerRef.current && wfsLayerRef.current.handleDelete) {
+      wfsLayerRef.current.handleDelete(feature);
+      setSelectedFeature(null);
+    } else {
+      console.warn("deleteFeature not available on wfsLayerRef");
+    }
+  };
 
   const handleFeatureSelect = (feature) => {
     setSelectedFeature(feature);
 
     const map = mapRef.current;
-    const geojsonLayer = L.geoJSON(feature);
 
-    if (map && map.flyToBounds) {
-      map.flyToBounds(geojsonLayer.getBounds(), { padding: [20, 20] });
+    if (!feature || !feature.geometry) {
+      console.warn("Selected feature has no geometry");
+      return;
+    }
+
+    try {
+      const geojsonLayer = L.geoJSON(feature);
+      const bounds = geojsonLayer.getBounds();
+
+      if (!bounds || !bounds.isValid()) {
+        console.warn("Invalid bounds for feature geometry:", feature.geometry);
+        return;
+      }
+
+      if (map && map.flyToBounds) {
+        map.flyToBounds(bounds, { padding: [20, 20] });
+      }
+    } catch (err) {
+      console.error("Error computing bounds for feature:", err);
     }
   };
+
 
   // Optional: Debug once mapRef is initialized
   useEffect(() => {
@@ -75,6 +124,8 @@ function MapComponent() {
         ))}
 
         <WFSLayer
+          ref={wfsLayerRef}
+          map={mapRef.current}
           editableLayers={editableLayers}
           onFeaturesUpdate={setLayerFeatures}
           setSelectedFeature={setSelectedFeature}
@@ -82,9 +133,17 @@ function MapComponent() {
       </MapContainer>
 
       <BottomPane
+        features={features}
+        onFeatureSelect={(feature) => {
+          setSelectedFeature(feature);
+        }}
+        onEdit={onEdit}
+        onDelete={onDelete}
         data={layerFeatures}
         setSelectedFeature={handleFeatureSelect}
-        map={mapRef.current} // still okay here, since ref will eventually populate
+        selectedFeature={selectedFeature}
+        map={mapRef.current}
+        onSaveEdit={(updatedFeature) => wfsLayerRef.current?.handleEdit(updatedFeature)}
       />
     </div>
   );

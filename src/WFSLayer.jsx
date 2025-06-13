@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -7,7 +7,7 @@ import "leaflet-draw";
 
 const WFS_URL = "http://localhost:8080/geoserver/ne/ows";
 
-const WFSLayer = ({ editableLayers, onFeaturesUpdate  }) => {
+const WFSLayer = forwardRef(({ editableLayers, onFeaturesUpdate }, ref) => {
   const map = useMap();
   const drawnItems = useRef(new L.FeatureGroup());
   const popupRef = useRef(null);
@@ -16,11 +16,88 @@ const WFSLayer = ({ editableLayers, onFeaturesUpdate  }) => {
   const [selectedFeature, setSelectedFeature] = useState(null);
   const [attributeValues, setAttributeValues] = useState({});
 
+  // Handle edits (geometry or attributes) - update WFS-T
+    const handleEdit = (feature) => {
+      console.log("WFSLayer: handleEdit called with feature", feature);
+      if (!feature?.id) return;
+
+      const layerName = editableLayers[0];
+      const gml = gmlFromGeometry(feature.geometry);
+      console.log("Sending GML Geometry:", gml);
+      const propertiesXml = Object.entries(feature.properties || {})
+        .map(
+          ([key, value]) => `
+            <wfs:Property>
+              <wfs:Name>${key}</wfs:Name>
+              <wfs:Value>${value}</wfs:Value>
+            </wfs:Property>
+          `
+        )
+        .join("");
+
+      const updateXml = `
+        <wfs:Transaction service="WFS" version="1.0.0"
+          xmlns:wfs="http://www.opengis.net/wfs"
+          xmlns:gml="http://www.opengis.net/gml"
+          xmlns:ogc="http://www.opengis.net/ogc"
+        >
+          <wfs:Update typeName="${layerName}">
+            <wfs:Property>
+              <wfs:Name>geom</wfs:Name>
+              <wfs:Value>${gml}</wfs:Value>
+            </wfs:Property>
+            ${propertiesXml}
+            <ogc:Filter>
+              <ogc:FeatureId fid="${feature.id}" />
+            </ogc:Filter>
+          </wfs:Update>
+        </wfs:Transaction>
+      `;
+
+      sendTransaction(updateXml, () => {
+        console.log(`Feature ${feature.id} updated`);
+        fetchFeatures(layerName);
+        setSelectedFeature(null);
+        setAttributeValues({});
+      });
+    };
+
+    // Handle deletion - delete WFS-T
+    const handleDelete = (feature) => {
+      const layerName = editableLayers[0];
+      if (!layerName || !feature?.id) {
+        console.warn("Cannot delete: layer or feature id missing");
+        return;
+      }
+
+      const deleteXml = `
+        <wfs:Transaction service="WFS" version="1.0.0"
+          xmlns:wfs="http://www.opengis.net/wfs"
+          xmlns:ogc="http://www.opengis.net/ogc"
+        >
+          <wfs:Delete typeName="${layerName}">
+            <ogc:Filter>
+              <ogc:FeatureId fid="${feature.id}" />
+            </ogc:Filter>
+          </wfs:Delete>
+        </wfs:Transaction>
+      `;
+
+      sendTransaction(deleteXml, () => {
+        console.log(`✅ Feature ${feature.id} deleted`);
+        fetchFeatures(layerName);
+      });
+    };
+
+  useImperativeHandle(ref, () => ({
+    handleEdit,
+    handleDelete
+  }));
   useEffect(() => {
     map.addLayer(drawnItems.current);
 
     const drawControl = new L.Control.Draw({
-      edit: { featureGroup: drawnItems.current, remove: true },
+      edit: false,
       draw: {
         polygon: true,
         polyline: true,
@@ -31,7 +108,7 @@ const WFSLayer = ({ editableLayers, onFeaturesUpdate  }) => {
       },
     });
     map.addControl(drawControl);
-
+    
     // Handle feature creation - insert WFS-T
     const handleCreate = (e) => {
       const layer = e.layer;
@@ -53,7 +130,9 @@ const WFSLayer = ({ editableLayers, onFeaturesUpdate  }) => {
         >
           <wfs:Insert>
             <${layerName}>
-              <ne:geom>${gml}</ne:geom>
+              <ne:geom>
+                ${gml}
+              </ne:geom>
               <ne:name>New Feature</ne:name>
             </${layerName}>
           </wfs:Insert>
@@ -63,78 +142,10 @@ const WFSLayer = ({ editableLayers, onFeaturesUpdate  }) => {
       sendTransaction(insertXml, () => fetchFeatures(layerName));
     };
 
-    // Handle edits (geometry or attributes) - update WFS-T
-    const handleEdit = (e) => {
-      const layerName = editableLayers[0];
-      if (!layerName) return;
+    
 
-      e.layers.eachLayer((layer) => {
-        if (!layer.feature?.id) return;
-
-        const id = layer.feature.id;
-        const geojson = layer.toGeoJSON();
-        const gml = gmlFromGeometry(geojson.geometry);
-
-        // Prepare properties XML from layer.feature.properties
-        const propertiesXml = Object.entries(layer.feature.properties || {})
-          .map(
-            ([key, value]) => `
-          <wfs:Property>
-            <wfs:Name>${key}</wfs:Name>
-            <wfs:Value>${value}</wfs:Value>
-          </wfs:Property>
-        `
-          )
-          .join("");
-
-        const updateXml = `
-          <wfs:Transaction service="WFS" version="1.0.0"
-            xmlns:wfs="http://www.opengis.net/wfs"
-            xmlns:gml="http://www.opengis.net/gml"
-            xmlns:ogc="http://www.opengis.net/ogc"
-            xmlns:ne="http://www.naturalearthdata.com"
-          >
-            <wfs:Update typeName="${layerName}">
-              <wfs:Property>
-                <wfs:Name>geom</wfs:Name>
-                <wfs:Value>${gml}</wfs:Value>
-              </wfs:Property>
-              ${propertiesXml}
-              <ogc:Filter>
-                <ogc:FeatureId fid="${id}" />
-              </ogc:Filter>
-            </wfs:Update>
-          </wfs:Transaction>
-        `;
-
-        sendTransaction(updateXml, () => fetchFeatures(layerName));
-      });
-    };
-
-    // Handle deletion - delete WFS-T
-    const handleDelete = (e) => {
-      const layerName = editableLayers[0];
-      if (!layerName) return;
-
-      e.layers.eachLayer((layer) => {
-        if (!layer.feature?.id) return;
-
-        const id = layer.feature.id;
-        const deleteXml = `
-          <wfs:Transaction service="WFS" version="1.0.0"
-            xmlns:wfs="http://www.opengis.net/wfs"
-            xmlns:ogc="http://www.opengis.net/ogc"
-          >
-            <wfs:Delete typeName="${layerName}">
-              <ogc:Filter>
-                <ogc:FeatureId fid="${id}" />
-              </ogc:Filter>
-            </wfs:Delete>
-          </wfs:Transaction>
-        `;
-        sendTransaction(deleteXml, () => fetchFeatures(layerName));
-      });
-    };
+    
+    
 
     map.on(L.Draw.Event.CREATED, handleCreate);
     map.on(L.Draw.Event.EDITED, handleEdit);
@@ -222,17 +233,36 @@ const WFSLayer = ({ editableLayers, onFeaturesUpdate  }) => {
         return `<gml:LineString srsName="EPSG:4326"><gml:coordinates>${geometry.coordinates
           .map((c) => c.join(","))
           .join(" ")}</gml:coordinates></gml:LineString>`;
+      case "MultiLineString":
+        return `
+          <gml:MultiLineString srsName="EPSG:4326">
+            ${geometry.coordinates
+              .map(
+                (line) => `
+              <gml:lineStringMember>
+                <gml:LineString>
+                  <gml:coordinates>${line.map((c) => c.join(",")).join(" ")}</gml:coordinates>
+                </gml:LineString>
+              </gml:lineStringMember>
+            `
+              )
+              .join("")}
+          </gml:MultiLineString>
+        `;
       case "Polygon":
         // For polygon: list of linear rings
-        const rings = geometry.coordinates
-          .map(
-            (ring) =>
-              `<gml:LinearRing><gml:coordinates>${ring
-                .map((c) => c.join(","))
-                .join(" ")}</gml:coordinates></gml:LinearRing>`
-          )
-          .join("");
-        return `<gml:Polygon srsName="EPSG:4326">${rings}</gml:Polygon>`;
+        const outerRing = geometry.coordinates[0];
+        const gmlCoords = outerRing.map((c) => c.join(",")).join(" ");
+
+        return `
+          <gml:Polygon srsName="EPSG:4326">
+            <gml:outerBoundaryIs>
+              <gml:LinearRing>
+                <gml:coordinates>${gmlCoords}</gml:coordinates>
+              </gml:LinearRing>
+            </gml:outerBoundaryIs>
+          </gml:Polygon>
+        `;
       default:
         console.warn("Unsupported geometry type for GML conversion:", geometry.type);
         return "";
@@ -388,6 +418,6 @@ const WFSLayer = ({ editableLayers, onFeaturesUpdate  }) => {
   };
 
   return null; // No visible React UI element; all interaction is on Leaflet map
-};
+});
 
 export default WFSLayer;
