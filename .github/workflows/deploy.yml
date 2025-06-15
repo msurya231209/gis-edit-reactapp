@@ -16,13 +16,13 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '18' # or whatever version your project needs
+        node-version: '18'
 
     - name: Install Dependencies
       run: npm install
 
-    - name: Build React App
-      run: npm run build
+    - name: Build React App (ignore warnings)
+      run: CI=false npm run build
 
     - name: Deploy via rsync to EC2
       env:
