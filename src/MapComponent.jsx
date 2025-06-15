@@ -8,23 +8,20 @@ import L from "leaflet";
 function MapComponent() {
   const [selectedFeature, setSelectedFeature] = useState(null);
   const [layerFeatures, setLayerFeatures] = useState([]);
-  const [editableLayers, setEditableLayers] = useState([]);
+  const [selectedLayer, setSelectedLayer] = useState(null); // ✅ now tracking selected WFS layer
   const [activeWMSLayers, setActiveWMSLayers] = useState([]);
   const mapRef = useRef(null);
   const wfsLayerRef = useRef();
   const [features, setFeatures] = useState([]);
+  const [availableWfsLayers, setAvailableWfsLayers] = useState([]); // ✅ loaded from GeoServer
 
+  // Replace with the exact names as shown in GeoServer admin UI
+const wmsLayers = [
+  { name: 'IND_adm1', label: 'State Boundaries', type: 'WMS' },
+  { name: 'ne:TGAdminBoundares3', label: 'TG Taluka Boundaries', type: 'WMS' }, // Corrected spelling
+  { name: 'ne:IND_rails', label: 'Rail Roads', type: 'WMS' }
+];
 
-  const wfsLayers = [
-    { name: 'features', label: 'Features', type: 'WFS' },
-    { name: 'HYD_rails', label: 'HYD Rail Roads', type: 'WFS' }
-  ];
-
-  const wmsLayers = [
-    { name: 'IND_adm1', label: 'State Boundaries', type: 'WMS' },
-    { name: 'TGAdminBoundares3', label: 'TG Taluka Boundaries', type: 'WMS' },
-    { name: 'IND_rails', label: 'Rail Roads', type: 'WMS' }
-  ];
   const callHandleEditFromWFS = (feature) => {
     if (wfsLayerRef.current && feature) {
       wfsLayerRef.current.handleEdit(feature);
@@ -34,19 +31,18 @@ function MapComponent() {
   };
 
   const onEdit = (feature) => {
-    setSelectedFeature(feature); // or your editing logic
+    setSelectedFeature(feature);
   };
 
   const onSaveEdit = () => {
     if (selectedFeature) {
-      callHandleEditFromWFS(selectedFeature); // <-- pass the actual feature object
+      callHandleEditFromWFS(selectedFeature);
     } else {
       console.warn("No feature selected to save");
     }
   };
 
   const onDelete = (feature) => {
-    console.log("wfsLayerRef.current:", wfsLayerRef.current);
     if (wfsLayerRef.current && wfsLayerRef.current.handleDelete) {
       wfsLayerRef.current.handleDelete(feature);
       setSelectedFeature(null);
@@ -82,30 +78,47 @@ function MapComponent() {
     }
   };
 
-
-  // Optional: Debug once mapRef is initialized
+  // ✅ Load WFS layers from GeoServer and filter only 'ne:' namespace
   useEffect(() => {
-    if (mapRef.current) {
-      console.log("✅ Map is ready:", mapRef.current);
-    }
-  }, [mapRef.current]);
+    fetch("http://localhost:8080/geoserver/wfs?service=WFS&request=GetCapabilities")
+      .then(res => res.text())
+      .then(xmlText => {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, "application/xml");
+        const featureTypes = xmlDoc.getElementsByTagName("FeatureType");
+
+        const layerNames = [];
+        for (let i = 0; i < featureTypes.length; i++) {
+          const nameEl = featureTypes[i].getElementsByTagName("Name")[0];
+          if (nameEl && nameEl.textContent.startsWith("ne:")) {
+            layerNames.push(nameEl.textContent);
+          }
+        }
+
+        setAvailableWfsLayers(layerNames);
+        console.log("✅ Loaded WFS layers (filtered):", layerNames);
+      })
+      .catch(err => {
+        console.error("Failed to load WFS layers:", err);
+      });
+  }, []);
 
   return (
     <div>
       <LayerListWidget
-        wfsLayers={wfsLayers}
+        layers={availableWfsLayers}           // ✅ filtered WFS layers
+        selectedLayer={selectedLayer}         // ✅ current selected layer
+        onSelectLayer={setSelectedLayer}      // ✅ callback to update selectedLayer
         wmsLayers={wmsLayers}
-        editableLayers={editableLayers}
-        setEditableLayers={setEditableLayers}
         activeWMSLayers={activeWMSLayers}
-        setActiveWMSLayers={setActiveWMSLayers}
+        onSetActiveWMSLayers={setActiveWMSLayers}
       />
 
       <MapContainer
         center={[17.385044, 78.486671]}
         zoom={12}
         style={{ height: '55vh' }}
-        ref={mapRef} // correct way in react-leaflet@5
+        ref={mapRef}
       >
         <TileLayer
           attribution='&copy; OpenStreetMap contributors'
@@ -126,7 +139,7 @@ function MapComponent() {
         <WFSLayer
           ref={wfsLayerRef}
           map={mapRef.current}
-          editableLayers={editableLayers}
+          editableLayers={selectedLayer && selectedLayer.type === "WFS" ? [selectedLayer] : []} // ✅ only selected WFS layer
           onFeaturesUpdate={setLayerFeatures}
           setSelectedFeature={setSelectedFeature}
         />
@@ -134,9 +147,7 @@ function MapComponent() {
 
       <BottomPane
         features={features}
-        onFeatureSelect={(feature) => {
-          setSelectedFeature(feature);
-        }}
+        onFeatureSelect={(feature) => setSelectedFeature(feature)}
         onEdit={onEdit}
         onDelete={onDelete}
         data={layerFeatures}
@@ -144,6 +155,7 @@ function MapComponent() {
         selectedFeature={selectedFeature}
         map={mapRef.current}
         onSaveEdit={(updatedFeature) => wfsLayerRef.current?.handleEdit(updatedFeature)}
+        onDeleteFeature={onDelete}
       />
     </div>
   );

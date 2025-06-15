@@ -21,7 +21,8 @@ const WFSLayer = forwardRef(({ editableLayers, onFeaturesUpdate }, ref) => {
       console.log("WFSLayer: handleEdit called with feature", feature);
       if (!feature?.id) return;
 
-      const layerName = editableLayers[0];
+      const layerName = editableLayers[0]?.name;
+
       const gml = gmlFromGeometry(feature.geometry);
       console.log("Sending GML Geometry:", gml);
       const propertiesXml = Object.entries(feature.properties || {})
@@ -64,7 +65,8 @@ const WFSLayer = forwardRef(({ editableLayers, onFeaturesUpdate }, ref) => {
 
     // Handle deletion - delete WFS-T
     const handleDelete = (feature) => {
-      const layerName = editableLayers[0];
+      const layerName = editableLayers[0]?.name;
+
       if (!layerName || !feature?.id) {
         console.warn("Cannot delete: layer or feature id missing");
         return;
@@ -115,7 +117,8 @@ const WFSLayer = forwardRef(({ editableLayers, onFeaturesUpdate }, ref) => {
       drawnItems.current.addLayer(layer);
       const geojson = layer.toGeoJSON();
 
-      const layerName = editableLayers[0];
+      const layerName = editableLayers[0]?.name;
+
       if (!layerName) return;
 
       const gml = gmlFromGeometry(geojson.geometry);
@@ -129,23 +132,18 @@ const WFSLayer = forwardRef(({ editableLayers, onFeaturesUpdate }, ref) => {
           xmlns:ne="http://www.naturalearthdata.com"
         >
           <wfs:Insert>
-            <${layerName}>
+            <${layerName.split(":")[1]}>
               <ne:geom>
                 ${gml}
               </ne:geom>
               <ne:name>New Feature</ne:name>
-            </${layerName}>
+            </${layerName.split(":")[1]}>
           </wfs:Insert>
         </wfs:Transaction>
       `;
 
       sendTransaction(insertXml, () => fetchFeatures(layerName));
     };
-
-    
-
-    
-    
 
     map.on(L.Draw.Event.CREATED, handleCreate);
     map.on(L.Draw.Event.EDITED, handleEdit);
@@ -160,62 +158,88 @@ const WFSLayer = forwardRef(({ editableLayers, onFeaturesUpdate }, ref) => {
   }, [map, editableLayers]);
 
   // Fetch WFS features and add to layer
+  const lastFetchedLayer = useRef(null);
+
   useEffect(() => {
-    if (editableLayers.length > 0) {
-      fetchFeatures(editableLayers[0]);
-    } else {
-      drawnItems.current.clearLayers();
-    }
-  }, [editableLayers]);
+    if (!map || editableLayers.length === 0) return;
+
+    const layerName = editableLayers[0]?.name;
+    if (!layerName || layerName === lastFetchedLayer.current) return;
+
+    console.log("📡 Fetching WFS for layer:", layerName);
+    fetchFeatures(layerName);
+    lastFetchedLayer.current = layerName;
+  }, [map, editableLayers]);
 
   const fetchFeatures = (typeName) => {
-    fetch(
-      `${WFS_URL}?service=WFS&version=1.0.0&request=GetFeature&typeName=${typeName}&outputFormat=application/json`
-    )
-      .then((res) => res.json())
-      .then((data) => {
-        drawnItems.current.clearLayers();
-        const features = data.features;
-        
-        if (onFeaturesUpdate) onFeaturesUpdate(features);
+  fetch(
+    `${WFS_URL}?service=WFS&version=1.0.0&request=GetFeature&typeName=${typeName}&outputFormat=application/json`
+  )
+    .then(async (res) => {
+      const text = await res.text(); // Read as text first
+      const contentType = res.headers.get("content-type") || "";
 
-        L.geoJSON(data, {
-          onEachFeature: (feature, layer) => {
-            layer.feature = feature;
+      if (!res.ok) {
+        console.error("WFS request failed:", res.status);
+        throw new Error(`WFS request failed with status ${res.status}`);
+      }
 
-            // Assign id to layer.feature.id if missing (GeoServer sometimes uses 'id' or 'fid')
-            if (!feature.id && feature.properties && feature.properties.id) {
-              feature.id = feature.properties.id;
+      if (!contentType.includes("application/json")) {
+        console.error("Expected JSON response but got:", contentType);
+        console.error("Response content:\n", text);
+        throw new Error("Server did not return JSON. Possibly an XML error.");
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        console.error("WFS fetch error: invalid JSON. Raw response:\n", text);
+        throw new Error("Failed to parse WFS JSON response");
+      }
+
+      console.log("WFS GeoJSON data", data);
+      drawnItems.current.clearLayers();
+      const features = data.features;
+
+      if (onFeaturesUpdate) onFeaturesUpdate(features);
+
+      L.geoJSON(data, {
+        onEachFeature: (feature, layer) => {
+          layer.feature = feature;
+
+          // Assign ID if missing
+          if (!feature.id && feature.properties && feature.properties.id) {
+            feature.id = feature.properties.id;
+          }
+
+          layer.on("click", () => {
+            setSelectedFeature(feature);
+            setAttributeValues({ ...feature.properties });
+
+            const popupContent = createPopupContent(feature);
+            if (popupRef.current) {
+              popupRef.current.remove();
             }
+            popupRef.current = L.popup()
+              .setLatLng(
+                layer.getBounds
+                  ? layer.getBounds().getCenter()
+                  : layer.getLatLng()
+              )
+              .setContent(popupContent)
+              .openOn(map);
+          });
 
-            layer.on("click", () => {
-              setSelectedFeature(feature);
-              setAttributeValues({ ...feature.properties });
+          drawnItems.current.addLayer(layer);
+        },
+      });
+    })
+    .catch((err) => {
+      console.error("WFS fetch error:", err.message);
+    });
+};
 
-              // Open popup with form
-              const popupContent = createPopupContent(feature);
-              if (popupRef.current) {
-                popupRef.current.remove();
-              }
-              popupRef.current = L.popup()
-                .setLatLng(
-                  layer.getBounds
-                    ? layer.getBounds().getCenter()
-                    : layer.getLatLng()
-                )
-                .setContent(popupContent)
-                .openOn(map);
-            });
-
-            drawnItems.current.addLayer(layer);
-          },
-        });
-        //if (onFeaturesLoad) {
-          //onFeaturesLoad(data.features);
-        //}
-      })
-      .catch((err) => console.error("WFS fetch error:", err));
-  };
 
   // Create a GML string from GeoJSON geometry (basic conversion for Point, LineString, Polygon)
   const gmlFromGeometry = (geometry) => {
@@ -309,7 +333,8 @@ const WFSLayer = forwardRef(({ editableLayers, onFeaturesUpdate }, ref) => {
       return;
     }
 
-    const layerName = editableLayers[0];
+    const layerName = editableLayers[0]?.name;
+
     if (!layerName) return;
 
     const propertiesXml = Object.entries(localAttributeValues).map(
@@ -357,7 +382,8 @@ const WFSLayer = forwardRef(({ editableLayers, onFeaturesUpdate }, ref) => {
 
   // Save edited attributes with WFS-T Update transaction
   const handleAttributeSave = () => {
-    const layerName = editableLayers[0];
+    const layerName = editableLayers[0]?.name;
+
     if (!layerName || !selectedFeature?.id) return;
 
     const propertiesXml = Object.entries(attributeValues)
