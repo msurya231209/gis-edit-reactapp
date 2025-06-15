@@ -10,26 +10,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Deploy to EC2
-      uses: appleboy/ssh-action@v1.0.0
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
       with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ec2-user
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          if [ ! -d "gis-edit-reactapp" ]; then
-            echo "Cloning repo..."
-            git clone https://github.com/msurya231209/gis-edit-reactapp.git
-          else
-            echo "Repo already exists. Pulling latest changes..."
-            cd gis-edit-reactapp
-            git pull origin main
-            cd ..
-          fi
+        node-version: '18' # or whatever version your project needs
 
-          cd gis-edit-reactapp
-          echo "Installing dependencies..."
-          npm install
+    - name: Install Dependencies
+      run: npm install
 
-          echo "Building the React app..."
-          npm run build
+    - name: Build React App
+      run: npm run build
+
+    - name: Deploy via rsync to EC2
+      env:
+        EC2_HOST: ${{ secrets.EC2_HOST }}
+        EC2_USER: ${{ secrets.EC2_USER }}
+        EC2_KEY: ${{ secrets.EC2_KEY }}
+      run: |
+        echo "$EC2_KEY" > ec2key.pem
+        chmod 600 ec2key.pem
+        rsync -avz --delete -e "ssh -i ec2key.pem -o StrictHostKeyChecking=no" \
+          build/ $EC2_USER@$EC2_HOST:/home/ec2-user/gis-edit-reactapp/build/
